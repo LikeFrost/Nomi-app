@@ -10,6 +10,10 @@ type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
+function nowMs() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
 // Web implementation: a real <canvas> element gets a THREE.WebGLRenderer.
 // React Native Web renders our <View> into a <div>; we attach a <canvas>
 // inside via a portal-like approach using a ref. ResizeObserver keeps the
@@ -45,11 +49,13 @@ export function CharacterCanvas({ onReady, onProgress, style }: Props) {
     renderer.toneMappingExposure = 1.1;
 
     const sceneCtx = createScene(initialW, initialH);
-    const clock = new THREE.Clock();
+    let lastFrameMs = nowMs();
 
     const renderFrame = () => {
       if (cancelled) return;
-      const dt = clock.getDelta();
+      const frameMs = nowMs();
+      const dt = (frameMs - lastFrameMs) / 1000;
+      lastFrameMs = frameMs;
       if (rig) rig.update(dt);
       renderer!.render(sceneCtx.scene, sceneCtx.camera);
       rafId = requestAnimationFrame(renderFrame);

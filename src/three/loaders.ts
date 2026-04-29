@@ -41,12 +41,76 @@ type GltfParserWithImages = {
   json: { images?: Array<{ name?: string }> };
 };
 
-async function loadExpoTexture(moduleRef: number, fallback: { width: number; height: number }) {
-  const asset = Asset.fromModule(moduleRef);
+function isFileAssetUri(uri: string) {
+  return uri.startsWith('file://');
+}
+
+function isLoaderReadableAssetUri(uri: string) {
+  return (
+    isFileAssetUri(uri) ||
+    uri.startsWith('http://') ||
+    uri.startsWith('https://') ||
+    uri.startsWith('data:')
+  );
+}
+
+function addReadableUri(candidates: string[], uri: string | null | undefined) {
+  if (uri && isLoaderReadableAssetUri(uri) && !candidates.includes(uri)) {
+    candidates.push(uri);
+  }
+}
+
+async function forceAssetCacheDownload(asset: Asset) {
+  asset.localUri = null;
+  asset.downloaded = false;
+  await asset.downloadAsync();
+}
+
+async function resolveReadableAssetUris(asset: Asset) {
+  await asset.downloadAsync();
+  const candidates: string[] = [];
+  addReadableUri(candidates, asset.localUri);
+  addReadableUri(candidates, asset.uri);
+
+  if (candidates.length > 0) return candidates;
+
+  // In native release builds, image assets may initially resolve to Android
+  // resource identifiers that React Native Image can use, but Expo GL cannot.
+  // Force expo-asset to copy the resource into cache so native GL gets a real
+  // file:// path for stbi_load().
+  await forceAssetCacheDownload(asset);
+  addReadableUri(candidates, asset.localUri);
+  addReadableUri(candidates, asset.uri);
+
+  if (candidates.length === 0) {
+    throw new Error(`Failed to resolve readable asset URI for ${asset.name}.${asset.type}`);
+  }
+
+  return candidates;
+}
+
+async function resolveExpoGLTextureFileUri(asset: Asset) {
   await asset.downloadAsync();
 
-  const uri = asset.localUri || asset.uri;
-  if (!uri) throw new Error('Failed to resolve texture asset URI');
+  if (asset.localUri && isFileAssetUri(asset.localUri)) {
+    return asset.localUri;
+  }
+
+  await forceAssetCacheDownload(asset);
+
+  if (asset.localUri && isFileAssetUri(asset.localUri)) {
+    return asset.localUri;
+  }
+
+  const uri = asset.localUri || asset.uri || '<empty>';
+  throw new Error(
+    `Failed to resolve file:// texture URI for ${asset.name}.${asset.type}. Got: ${uri}`,
+  );
+}
+
+async function loadExpoTexture(moduleRef: number, fallback: { width: number; height: number }) {
+  const asset = Asset.fromModule(moduleRef);
+  const uri = await resolveExpoGLTextureFileUri(asset);
 
   const texture = new THREE.Texture({
     localUri: uri,
@@ -82,7 +146,10 @@ function installNativeEmbeddedTextureLoader(loader: GLTFLoader) {
           const cached = imageParser.sourceCache[sourceIndex];
           if (cached) return cached.then((texture) => texture.clone());
 
-          const promise = loadExpoTexture(textureAsset.module, textureAsset);
+          const promise = loadExpoTexture(textureAsset.module, textureAsset).catch((error) => {
+            console.warn(`[loadGLB] failed to load native texture ${textureAsset.name}:`, error);
+            throw error;
+          });
           imageParser.sourceCache[sourceIndex] = promise;
           return promise;
         };
@@ -100,6 +167,38 @@ function createGLTFLoader() {
   return loader;
 }
 
+async function loadGLBFromUri(uri: string, onProgress?: (loaded: number, total: number) => void) {
+  return new Promise<GLTF>((resolve, reject) => {
+    const loader = createGLTFLoader();
+    loader.load(
+      uri,
+      resolve,
+      (event) => {
+        if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+      },
+      reject,
+    );
+  });
+}
+
+async function loadGLBFromCandidateUris(
+  uris: string[],
+  onProgress?: (loaded: number, total: number) => void,
+) {
+  let lastError: unknown;
+
+  for (const uri of uris) {
+    try {
+      return await loadGLBFromUri(uri, onProgress);
+    } catch (error) {
+      lastError = error;
+      console.warn('[loadGLB] failed to load GLB candidate:', uri, error);
+    }
+  }
+
+  throw lastError ?? new Error('Failed to load GLB: no readable URI candidates');
+}
+
 // Cross-platform GLB loader.
 // Pass in a `require('../../assets/Foo.glb')` value. On web Metro turns this
 // into a URI string; on native it's a numeric module id that Asset.fromModule
@@ -107,15 +206,10 @@ function createGLTFLoader() {
 // embedded textures can resolve relative to the file path on all platforms.
 export async function loadGLB(moduleRef: number | string): Promise<GLTF> {
   const asset = Asset.fromModule(moduleRef as number);
-  await asset.downloadAsync();
-  const uri = asset.localUri || asset.uri;
-  if (!uri) throw new Error('Failed to resolve asset URI');
+  const uris = await resolveReadableAssetUris(asset);
 
   await MeshoptDecoder.ready;
-  return new Promise<GLTF>((resolve, reject) => {
-    const loader = createGLTFLoader();
-    loader.load(uri, resolve, undefined, reject);
-  });
+  return loadGLBFromCandidateUris(uris);
 }
 
 // On web, large GLBs benefit from progress reporting. The caller can pass an
@@ -129,20 +223,8 @@ export async function loadGLBWithProgress(
     return loadGLB(moduleRef);
   }
   const asset = Asset.fromModule(moduleRef as number);
-  await asset.downloadAsync();
-  const uri = asset.localUri || asset.uri;
-  if (!uri) throw new Error('Failed to resolve asset URI');
+  const uris = await resolveReadableAssetUris(asset);
 
   await MeshoptDecoder.ready;
-  return new Promise<GLTF>((resolve, reject) => {
-    const loader = createGLTFLoader();
-    loader.load(
-      uri,
-      resolve,
-      (event) => {
-        if (event.lengthComputable) onProgress?.(event.loaded, event.total);
-      },
-      reject,
-    );
-  });
+  return loadGLBFromCandidateUris(uris, onProgress);
 }

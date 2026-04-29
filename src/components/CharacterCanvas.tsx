@@ -11,6 +11,10 @@ type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
+function nowMs() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
 // Native implementation: use expo-gl's GLView to obtain a WebGL context, then
 // hand it to three.js via a fake canvas object that satisfies its interface.
 // The GLView fills its parent; resize is detected by polling the drawing
@@ -24,8 +28,8 @@ export function CharacterCanvas({ onReady, onProgress, style }: Props) {
       width: lastW,
       height: lastH,
       style: {} as CSSStyleDeclaration,
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: () => { },
+      removeEventListener: () => { },
       clientHeight: lastH,
       clientWidth: lastW,
       getContext: () => gl as unknown as RenderingContext,
@@ -46,7 +50,7 @@ export function CharacterCanvas({ onReady, onProgress, style }: Props) {
     renderer.toneMappingExposure = 1.1;
 
     const sceneCtx = createScene(lastW, lastH);
-    const clock = new THREE.Clock();
+    let lastFrameMs = nowMs();
 
     let rig: CharacterRig | null = null;
     try {
@@ -59,7 +63,9 @@ export function CharacterCanvas({ onReady, onProgress, style }: Props) {
     const renderFrame = () => {
       // Cap dt to ~33ms (30fps equivalent) so a JS-busy frame doesn't cause
       // the animation mixer to jump multiple frames at once.
-      const dt = Math.min(clock.getDelta(), 1 / 30);
+      const frameMs = nowMs();
+      const dt = Math.min((frameMs - lastFrameMs) / 1000, 1 / 30);
+      lastFrameMs = frameMs;
       const w = gl.drawingBufferWidth;
       const h = gl.drawingBufferHeight;
       if (w !== lastW || h !== lastH) {

@@ -80,4 +80,116 @@
   - 动画仍然正常；
   - 可能仍会存在一类无害日志：`EXGL: gl.pixelStorei() doesn't support this parameter yet!`。
 
-## 尝试 2 执行成功!!!
+## 尝试 2 后的新现象
+
+- `yarn start` 扫码 Expo Go 预览正常。
+- 但 build 安装到手机后仍然纯黑。
+- `yarn ios` 打开 iOS 模拟器时看不到人物模型。
+- iOS 模拟器日志包括：
+  - `It is recommended to log in with your Expo account before proceeding.`
+  - `EXGL: gl.pixelStorei() doesn't support this parameter yet!`
+  - `THREE.WebGLRenderer: EXT_color_buffer_float extension not supported.`
+
+## 新判断
+
+- Expo Go 正常说明模型、贴图内容和材质本身大概率没有坏。
+- build 后黑，更像是 Expo Go/dev 与 standalone/release 的 asset URI 解析方式不同。
+- 进一步查源码后发现：
+  - `expo-asset` 在 Android release 里可能把图片解析成 Android resource/drawable 标识，或 `file:///android_res/...`。
+  - `expo-gl` native 的 `loadImage()` 只接受真实 `file://` 路径，并把它交给 `stbi_load` 读取。
+  - React Native `Image` 能用 drawable/resource 标识，但 Expo GL 不能直接用它。
+- 所以，即使贴图已经换成 PNG，如果传给 Expo GL 的不是 cache 里的真实 `file://` 文件，也仍然可能显示纯黑。
+
+## 尝试 3
+
+- 在 `src/three/loaders.ts` 增加 `resolveReadableAssetUri()`。
+- 逻辑：
+  - 先正常执行 `asset.downloadAsync()`；
+  - 如果拿到的是 `file://`、`http(s)://` 或 `data:`，直接使用；
+  - 如果拿到的是 Android resource/drawable 这类 Expo GL 不可读 URI，就强制把 asset 标记为未下载，再调用 `downloadAsync()`；
+  - 这样会让 `expo-asset` 把资源复制到 cache，并最终返回真实 `file://`；
+  - 如果仍拿不到可读 URI，就抛出明确错误，避免静默“没模型”。
+- 这层保障同时用于：
+  - `girl-opt.glb` 模型文件；
+  - native 覆盖加载的 4 张 PNG 贴图。
+
+## 当前日志解释
+
+- `Proceed anonymously` / Expo 登录提示：不影响渲染。
+- `EXGL: gl.pixelStorei() doesn't support this parameter yet!`：仍然大概率是无害日志，Three 设置了 Expo GL 不支持的 pixel-store 参数。
+- `EXT_color_buffer_float extension not supported`：通常是模拟器/WebGL 扩展能力警告，不应单独导致模型完全消失；如果尝试 3 后 iOS 仍看不到人物，需要优先看是否出现新的 asset URI 或 GLB 加载错误。
+
+## 尝试 4
+
+- 拆分 GLB 文件加载和 Expo GL 贴图上传的 URI 判断：
+  - GLB 本体：允许 `file://`、`http(s)://`、`data:`，并保留候选 URI 列表逐个尝试；
+  - native 贴图：必须拿到真实 `file://`，因为 `expo-gl` 的 `texImage2D` / `texSubImage2D` native 图片路径只读取 `localUri` 且只接受 `file://`。
+- 修正尝试 3 的关键漏洞：
+  - `http(s)` 可以给 `GLTFLoader` / XHR 加载 GLB；
+  - 但不能给 Expo GL 当作本地图片上传；
+  - 因此 native 覆盖贴图不再复用“可读 URI”判断，而是强制走 `resolveExpoGLTextureFileUri()`。
+- iOS 额外兜底：
+  - 如果 GLB 的 `file://` 候选在 iOS 模拟器上被 RN XHR 拒绝，会自动尝试下一个候选 URI，例如 Metro dev server 的 `http://...`；
+  - 这样避免 `CharacterRig.create()` 因 GLB 本体加载失败而不触发 `onReady`，导致 splash 一直遮住人物。
+
+## 尝试 4 验证
+
+- `yarn typecheck` 通过。
+- `yarn lint` 通过。
+- 下一步需要重新跑 `yarn ios`：
+  - 如果 iOS 能看到人物，说明问题主要是 URI 类型混用；
+  - 如果仍看不到，优先看控制台是否出现 `[loadGLB] failed to load GLB candidate:` 或 `Failed to resolve file:// texture URI`。
+
+## 尝试 4 后的新现象
+
+- iOS 仍然看不到人物。
+- 截图里角色加载遮罩已经消失，只剩画布背景：
+  - 这说明 `CharacterRig.create()` 大概率已经成功；
+  - `onReady` 已触发，splash 和 loading overlay 才会消失；
+  - 所以问题从“GLB 没加载”转向“模型进场景后没有画出像素”。
+- 控制台仍只有：
+  - `EXGL: gl.pixelStorei() doesn't support this parameter yet!`
+  - `THREE.WebGLRenderer: EXT_color_buffer_float extension not supported.`
+- 没看到明确 GLB/贴图加载错误。
+
+## 尝试 5
+
+- 在 native 上把 GLTF 的 PBR/Physical 材质降级成 `MeshBasicMaterial`：
+  - 优先复用 diffuse/baseColor 贴图；
+  - 如果贴图没有成功加载，使用一个明显可见的 fallback 色，避免白模融进浅色背景；
+  - 关闭 tone mapping，使用 `DoubleSide`，并禁用 frustum culling。
+- 在 iOS 上额外增加 CPU skinning fallback：
+  - 保留原始 `SkinnedMesh` 和骨骼动画作为驱动；
+  - 隐藏原始 `SkinnedMesh`；
+  - 新建普通 `Mesh` 作为显示层；
+  - 每帧从原始 `SkinnedMesh.getVertexPosition()` 计算骨骼变形后的顶点位置，写入普通 Mesh 的 dynamic position buffer。
+- 目的：
+  - 绕开 Expo GL / iOS 模拟器上可能不稳定的 skinned mesh bone texture shader 路径；
+  - 即使 iOS 的 float bone texture / vertex texture 采样有问题，也能显示和播放动画。
+
+## 尝试 5 验证
+
+- `yarn typecheck` 通过。
+- `yarn lint` 通过。
+- 下一步重新跑 `yarn ios`。
+- 如果仍为空白，下一轮需要加最小 debug primitive：
+  - 先在同一个 scene 里画一个固定 cube/plane；
+  - 如果 cube 能显示，继续查模型 transform/CPU skin buffer；
+  - 如果 cube 也不能显示，说明问题在 GLView/renderer/framebuffer 层。
+
+## 尝试 5 后的新报错
+
+- iOS 卡在加载页，日志：
+  - `[CharacterCanvas native] failed to load rig: [TypeError: position.setUsage is not a function (it is undefined)]`
+- 原因：
+  - GLB 的 `position` attribute 在当前模型里可能是 `InterleavedBufferAttribute`；
+  - 普通 `BufferAttribute` 才有 `setUsage()`；
+  - interleaved attribute 的 usage 要设置在底层 `attribute.data` 上。
+
+## 尝试 6
+
+- 增加 `setAttributeDynamicUsage()`，同时兼容：
+  - `BufferAttribute.setUsage(...)`
+  - `InterleavedBufferAttribute.data.setUsage(...)`
+- CPU skinning fallback 的 position 类型改成 `BufferAttribute | InterleavedBufferAttribute`。
+
