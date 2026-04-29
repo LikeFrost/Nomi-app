@@ -127,5 +127,5 @@ export function useEmotionModel() {
     schedulePersist(next);
   }, [schedulePersist]);
 
-  return { state, stateRef, onAction, reset };
+  return { state, onAction, reset };
 }

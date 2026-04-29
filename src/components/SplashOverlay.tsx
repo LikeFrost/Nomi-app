@@ -44,7 +44,7 @@ export function SplashOverlay({ ready, onDone }: Props) {
     ];
     pulseLoops.current.forEach((l) => l.start());
     return () => pulseLoops.current.forEach((l) => l.stop());
-  }, []);
+  }, [centerScale, ring1, ring2]);
 
   useEffect(() => {
     if (!ready) return;
@@ -84,7 +84,7 @@ export function SplashOverlay({ ready, onDone }: Props) {
       });
     }, 80);
     return () => clearTimeout(timer);
-  }, [ready]);
+  }, [centerOpacity, exit1, exit2, onDone, overlayOpacity, ready]);
 
   const pulseRingStyle = (anim: Animated.Value) => ({
     transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.0] }) }],

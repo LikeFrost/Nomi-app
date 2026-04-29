@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { loadGLBWithProgress } from './loaders';
 
-const ACTIONS = ['idle', 'greet', 'kiss', 'cheer'] as const;
-export type ActionName = (typeof ACTIONS)[number];
+export type ActionName = 'idle' | 'greet' | 'kiss' | 'cheer';
 
 // Map our internal action names to the clip names in girl.glb.
 const CLIP_NAME: Record<ActionName, string> = {
@@ -48,7 +47,6 @@ export class CharacterRig {
     onProgress?: (loaded: number, total: number) => void,
   ): Promise<CharacterRig> {
     const gltf = await loadGLBWithProgress(
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('../../assets/girl-opt.glb'),
       onProgress,
     );

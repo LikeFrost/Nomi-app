@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { readJSON, writeJSON } from '../utils/storage';
 import { todayKey } from '../utils/dateKey';
@@ -9,7 +9,6 @@ type Stored = { date: string; count: number };
 
 export function useDailyCounter() {
   const [count, setCount] = useState(0);
-  const ready = useRef(false);
 
   const refresh = useCallback(async () => {
     const today = todayKey();
@@ -21,7 +20,6 @@ export function useDailyCounter() {
     } else {
       setCount(stored.count);
     }
-    ready.current = true;
   }, []);
 
   useEffect(() => {

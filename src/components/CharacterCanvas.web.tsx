@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import * as THREE from 'three';
 import { createScene } from '../three/scene';
@@ -16,7 +16,6 @@ type Props = {
 // renderer + camera in sync with the container's measured size.
 export function CharacterCanvas({ onReady, onProgress, style }: Props) {
   const containerRef = useRef<View>(null);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let renderer: THREE.WebGLRenderer | null = null;
@@ -78,7 +77,6 @@ export function CharacterCanvas({ onReady, onProgress, style }: Props) {
       })
       .catch((e) => {
         console.error('[CharacterCanvas] failed to load rig:', e);
-        setError(e?.message || String(e));
       });
 
     return () => {
@@ -89,13 +87,10 @@ export function CharacterCanvas({ onReady, onProgress, style }: Props) {
       renderer?.dispose();
       if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [onProgress, onReady]);
 
   return (
-    <View ref={containerRef} style={[styles.container, style]}>
-      {error ? null : null}
-    </View>
+    <View ref={containerRef} style={[styles.container, style]} />
   );
 }
 

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import type { Emotion } from '../ai/types';
 
 export type Scene3D = {
   scene: THREE.Scene;
@@ -7,13 +6,6 @@ export type Scene3D = {
   ambient: THREE.AmbientLight;
   key: THREE.DirectionalLight;
   setSize: (width: number, height: number) => void;
-  setEmotionTint: (emotion: Emotion) => void;
-};
-
-const TINT_BY_EMOTION: Record<Emotion, number> = {
-  happy: 0xfff2c4,    // warm yellow
-  tired: 0xb0c4d6,    // cool blue-grey
-  playful: 0xffc0e8,  // pink-purple
 };
 
 export function createScene(width: number, height: number): Scene3D {
@@ -46,9 +38,5 @@ export function createScene(width: number, height: number): Scene3D {
     camera.updateProjectionMatrix();
   };
 
-  const setEmotionTint = (emotion: Emotion) => {
-    key.color.setHex(TINT_BY_EMOTION[emotion]);
-  };
-
-  return { scene, camera, ambient, key, setSize, setEmotionTint };
+  return { scene, camera, ambient, key, setSize };
 }

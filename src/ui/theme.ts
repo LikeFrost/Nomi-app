@@ -34,5 +34,3 @@ export const theme = {
   shadowColor: '#000000',
   shadowOpacity: 0.06,
 } as const;
-
-export const RADIUS_PILL = theme.radiusPill;

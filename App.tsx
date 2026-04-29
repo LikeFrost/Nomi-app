@@ -33,6 +33,7 @@ export default function App() {
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [characterReady, setCharacterReady] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
+  const handleCharacterReady = useCallback(() => setCharacterReady(true), []);
 
   // Easter-egg overlay opacity: hidden under threshold, fades up over the next
   // few clicks. Animated.timing smooths each step so the reveal isn't a step
@@ -84,7 +85,7 @@ export default function App() {
             <View style={styles.canvasFrame}>
               <CharacterCard
                 ref={cardRef}
-                onReady={() => setCharacterReady(true)}
+                onReady={handleCharacterReady}
               />
               <Animated.View
                 pointerEvents={easterEggUnlocked ? 'box-none' : 'none'}
