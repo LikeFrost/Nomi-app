@@ -55,7 +55,9 @@ function isLoaderReadableAssetUri(uri: string) {
 }
 
 function addReadableUri(candidates: string[], uri: string | null | undefined) {
-  if (uri && isLoaderReadableAssetUri(uri) && !candidates.includes(uri)) {
+  if (!uri || candidates.includes(uri)) return;
+  // On web, XHR can resolve relative paths; skip the scheme check.
+  if (Platform.OS === 'web' || isLoaderReadableAssetUri(uri)) {
     candidates.push(uri);
   }
 }

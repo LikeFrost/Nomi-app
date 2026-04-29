@@ -54,7 +54,7 @@ function createNativeMaterial(material: THREE.Material) {
 }
 
 function simplifyNativeMaterials(scene: THREE.Object3D) {
-  if (Platform.OS === 'web') return;
+  if (Platform.OS !== 'ios') return;
 
   scene.traverse((object) => {
     const mesh = object as THREE.Mesh;
